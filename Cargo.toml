@@ -1,6 +1,6 @@
 [package]
-name = "sol-rpc-ingestor"
-version = "1.0.7"
+name = "ingestor-rpc"
+version = "1.2.2"
 description = "Solana RPC Ingestor"
 authors = ["Aurimas Narkevicius <aurimas.n@dexterlab.com>"]
 license = "Apache-2.0"
@@ -37,7 +37,7 @@ thrift-pool = "=1.4.0"
 #hdfs = "0.0.4"
 chrono = { version = "0.4.22", features = ["serde"] }
 backoff = { version = "0.4.0", features = ["tokio"] }
-solana-binary-encoder = "=1.0.7"
+solana-binary-encoder = "=1.2.2"
 solana-clap-utils = "=1.16.15"
 solana-client = "=1.16.15"
 solana-sdk = "=1.16.15"
@@ -68,7 +68,7 @@ version = "0.29.0"
 rustc_version = "0.4"
 
 [[bin]]
-name = "sol-rpc-ingestor"
+name = "ingestor-rpc"
 path = "src/main.rs"
 
 #[[bin]]

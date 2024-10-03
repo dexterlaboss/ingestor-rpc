@@ -1888,6 +1888,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "ingestor-rpc"
+version = "1.2.2"
+dependencies = [
+ "anyhow",
+ "backoff",
+ "base64 0.13.1",
+ "bincode",
+ "borsh 0.9.3",
+ "borsh-derive 0.9.3",
+ "bs58",
+ "bytes",
+ "chrono",
+ "clap 2.34.0",
+ "console",
+ "dotenv",
+ "env_logger",
+ "envy",
+ "futures",
+ "hbase-thrift",
+ "hex",
+ "log",
+ "md5",
+ "pretty-hex",
+ "prost",
+ "prost-types",
+ "rdkafka",
+ "rust_decimal",
+ "rustc_version",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "solana-binary-encoder",
+ "solana-clap-utils",
+ "solana-client",
+ "solana-sdk",
+ "solana-storage-proto",
+ "solana-transaction-status",
+ "solana-version",
+ "thiserror",
+ "thrift",
+ "thrift-pool",
+ "tokio",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3610,51 +3655,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sol-rpc-ingestor"
-version = "1.0.7"
-dependencies = [
- "anyhow",
- "backoff",
- "base64 0.13.1",
- "bincode",
- "borsh 0.9.3",
- "borsh-derive 0.9.3",
- "bs58",
- "bytes",
- "chrono",
- "clap 2.34.0",
- "console",
- "dotenv",
- "env_logger",
- "envy",
- "futures",
- "hbase-thrift",
- "hex",
- "log",
- "md5",
- "pretty-hex",
- "prost",
- "prost-types",
- "rdkafka",
- "rust_decimal",
- "rustc_version",
- "serde",
- "serde_derive",
- "serde_json",
- "solana-binary-encoder",
- "solana-clap-utils",
- "solana-client",
- "solana-sdk",
- "solana-storage-proto",
- "solana-transaction-status",
- "solana-version",
- "thiserror",
- "thrift",
- "thrift-pool",
- "tokio",
-]
-
-[[package]]
 name = "solana-account-decoder"
 version = "1.16.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3701,9 +3701,9 @@ dependencies = [
 
 [[package]]
 name = "solana-binary-encoder"
-version = "1.0.7"
+version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ace5dd0f981ddddb538cab9b7c426d5e5ec6bd7c319c824c17a16885ab12ead4"
+checksum = "e8e8fe6a79174a8812b17df5c94f1a41a1c3911ac64d769fb4238cbeadcc2390"
 dependencies = [
  "Inflector",
  "base64 0.13.1",
