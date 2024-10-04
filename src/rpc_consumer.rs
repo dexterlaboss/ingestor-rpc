@@ -53,7 +53,6 @@ use std::error::Error;
 // }
 //
 // unsafe impl Send for SendSyncError {}
-// unsafe impl Sync for SendSyncError {}
 
 pub fn get_raw_block(rpc_client: &RpcClient, slot: Slot) -> Result<Value, Box<dyn Error + Send + Sync>> {
     let request = RpcRequest::GetBlock;
@@ -64,11 +63,9 @@ pub fn get_raw_block(rpc_client: &RpcClient, slot: Slot) -> Result<Value, Box<dy
         "maxSupportedTransactionVersion": 0
     }]);
 
-    // Send the request and get the response
     let response: Value = rpc_client.send(request, params)?;
 
-    // Return the raw block data from the "result" field
-    Ok(response["result"].clone())
+    Ok(response.clone())
 }
 
 pub struct RpcConsumer {
