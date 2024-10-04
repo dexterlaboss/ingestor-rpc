@@ -177,7 +177,9 @@ fn create_filter(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Define the command-line interface
+    let version = env!("CARGO_PKG_VERSION");
+    info!("Solana RPC Ingestor Version: {}", version);
+
     let matches = App::new("Solana Block Uploader")
         .version("1.0")
         .about("Uploads Solana blocks to HBase")
