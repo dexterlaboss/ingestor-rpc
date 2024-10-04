@@ -22,9 +22,9 @@ RUN mkdir -p /solana
 
 WORKDIR /solana
 
-COPY --from=build /solana/target/release/block-encoder-service .
+COPY --from=build /solana/target/release/ingestor-rpc .
 
 EXPOSE 8899
 
 ENV RUST_LOG=info
-CMD ["./block-encoder-service"]
+CMD ["./ingestor-rpc"]
