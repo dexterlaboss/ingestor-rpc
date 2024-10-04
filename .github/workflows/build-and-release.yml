@@ -11,6 +11,18 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # Install Rust
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      # Build the binary using Cargo
+      - name: Build the binary
+        run: cargo build --release
+
       - name: Login to DockerHub
         uses: docker/login-action@v2
         with:
@@ -31,3 +43,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Upload the compiled binary to the release
+      - name: Upload compiled binary to GitHub Release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.gh-release.outputs.upload_url }}
+          asset_path: ./target/release/solana_rpc_ingestor # Adjust to your binary name
+          asset_name: solana_rpc_ingestor_${{ github.ref_name }}_linux_amd64
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
