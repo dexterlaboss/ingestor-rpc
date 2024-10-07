@@ -1,4 +1,3 @@
-// use thrift::transport::TBufferChannel;
 use {
     solana_binary_encoder::{
         compression::{compress, compress_best, decompress, CompressionMethod},
@@ -6,17 +5,13 @@ use {
     backoff::{future::retry, ExponentialBackoff},
     log::*,
     std::{
-        // str::FromStr,
         time::{
             Duration,
-            // Instant,
-            // SystemTime
         },
     },
     thiserror::Error,
     hbase_thrift::hbase::{BatchMutation, HbaseSyncClient, THbaseSyncClient, TScan},
     hbase_thrift::{
-        // BatchMutationBuilder,
         MutationBuilder,
     },
     thrift::{
@@ -87,7 +82,7 @@ pub struct HBaseConnection {
 impl HBaseConnection {
     pub async fn new(
         address: &str,
-        read_only: bool,
+        _read_only: bool,
         timeout: Option<Duration>,
     ) -> Self {
         info!("Connecting to HBase at address {}", address.clone().to_string());
@@ -112,7 +107,7 @@ impl HBaseConnection {
 
         HBase {
             client,
-            timeout: self.timeout,
+            _timeout: self.timeout,
         }
     }
 
@@ -160,7 +155,7 @@ type OutputProtocol = TBinaryOutputProtocol<OutputTransport>;
 
 pub struct HBase {
     client: HbaseSyncClient<InputProtocol, OutputProtocol>,
-    timeout: Option<Duration>,
+    _timeout: Option<Duration>,
 }
 
 impl HBase {

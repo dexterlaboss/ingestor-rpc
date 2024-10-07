@@ -1,7 +1,6 @@
 use {
     crate::{
         rpc_consumer::RpcConsumer,
-        cli::{DefaultBlockUploaderArgs, block_uploader_app},
         ledger_storage::{
             LedgerStorage,
             LedgerStorageConfig,
@@ -17,7 +16,7 @@ use {
         pubkey::Pubkey,
         commitment_config::CommitmentConfig,
     },
-    clap::{value_t, value_t_or_exit, values_t, values_t_or_exit, ArgMatches, App, Arg},
+    clap::{values_t, ArgMatches, App, Arg},
     log::{debug, info},
     std::sync::Arc,
 };
@@ -82,7 +81,7 @@ async fn handle_message_receiving(
         rpc_poll_interval,
     ).await;
 
-    rpc_consumer.consume().await;
+    let _ = rpc_consumer.consume().await;
 }
 
 fn process_arguments(matches: &ArgMatches) -> UploaderConfig {

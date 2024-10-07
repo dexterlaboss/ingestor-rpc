@@ -1,27 +1,21 @@
 use {
     crate::{
-        ledger_storage::{LedgerStorage, LedgerStorageConfig, UploaderConfig},
+        ledger_storage::{LedgerStorage},
     },
     std::sync::Arc,
     tokio::sync::{Mutex, mpsc},
-    tokio::task,
     tokio::time::{sleep, Duration, Instant},
     futures::future::join_all,
     std::sync::atomic::{AtomicU64, Ordering},
     log::{debug, info, warn, error},
     solana_client::rpc_client::RpcClient,
-    // solana_transaction_status::{BlockEncodingOptions, EncodedConfirmedBlock, UiTransactionEncoding, TransactionDetails},
-    // solana_transaction_status::EncodedConfirmedBlock as SdkEncodedConfirmedBlock,
     solana_binary_encoder::{
-        convert::generated,
         transaction_status::{
             EncodedConfirmedBlock,
-            VersionedConfirmedBlock,
             UiTransactionEncoding,
             BlockEncodingOptions,
             TransactionDetails,
         },
-        encode_block,
         convert_block,
     },
 };
@@ -29,30 +23,6 @@ use solana_client::rpc_request::RpcRequest;
 use serde_json::{json, Value};
 use solana_sdk::clock::Slot;
 use std::error::Error;
-// use anyhow::Error as AnyError;
-// use std::fmt;
-
-// #[derive(Debug)]
-// struct SendSyncError(Box<dyn Error + Send + Sync>);
-//
-// impl fmt::Display for SendSyncError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(f, "{}", self.0)
-//     }
-// }
-//
-// impl Error for SendSyncError {}
-//
-// impl SendSyncError {
-//     fn new<E>(err: E) -> Self
-//         where
-//             E: Error + Send + Sync + 'static,
-//     {
-//         SendSyncError(Box::new(err))
-//     }
-// }
-//
-// unsafe impl Send for SendSyncError {}
 
 pub fn get_raw_block(rpc_client: &RpcClient, slot: Slot) -> Result<Value, Box<dyn Error + Send + Sync>> {
     let request = RpcRequest::GetBlock;
@@ -100,14 +70,10 @@ impl RpcConsumer {
         debug!("Started consuming blocks from Solana RPC");
 
         let first_slot = self.rpc_client.get_first_available_block()?;
-        let latest_slot = self.rpc_client.get_slot()?;
+        let _latest_slot = self.rpc_client.get_slot()?;
 
         let latest_stored_slot = match self.storage.get_latest_stored_slot(first_slot).await {
             Ok(slot) => slot,
-            // Err(Error::HBaseError(HBaseError::RowNotFound)) => {
-            //     // If the table is empty, start from first_slot - 1
-            //     first_slot - 1
-            // },
             Err(e) => return Err(Box::new(e)),
         };
 
@@ -173,8 +139,6 @@ impl RpcConsumer {
                         }
                     };
 
-                    // let encoder_block = sdk_block.into_encoder();
-
                     let options = BlockEncodingOptions {
                         transaction_details: TransactionDetails::Full,
                         show_rewards: true,
@@ -182,7 +146,7 @@ impl RpcConsumer {
                     };
 
                     let conversion_result = convert_block(block, UiTransactionEncoding::Json, options)
-                        .map_err(|e| e.to_string()); // Convert error to string
+                        .map_err(|e| e.to_string());
 
                     match conversion_result {
                         Ok(versioned_block) => {

@@ -27,9 +27,7 @@ use {
         sysvar::is_sysvar_id,
         transaction::TransactionError,
     },
-    // solana_storage_proto::convert::generated,
     extract_memos::extract_and_fmt_memos,
-    // transaction_error::TransactionError,
     log::{
         debug,
         error,
@@ -37,13 +35,11 @@ use {
         warn
     },
     std::{
-        // time::Duration,
         collections::{HashMap, HashSet},
     },
     thiserror::Error,
     tokio::task::JoinError,
 };
-use md5::{compute};
 use solana_sdk::message::v0::LoadedAddresses;
 
 #[derive(Debug, Error)]
@@ -436,7 +432,7 @@ impl LedgerStorage {
             }));
         }
 
-        let mut bytes_written = 0;
+        let mut _bytes_written = 0;
         let mut maybe_first_err: Option<Error> = None;
 
         debug!("waiting for all upload threads to finish...");
@@ -459,7 +455,7 @@ impl LedgerStorage {
                 }
                 Ok(Ok(bytes)) => {
                     debug!("got success result");
-                    bytes_written += bytes;
+                    _bytes_written += bytes;
                 }
             }
         }
@@ -469,10 +465,7 @@ impl LedgerStorage {
             return Err(err);
         }
 
-        let num_transactions = confirmed_block.transactions.len();
-
-        // let signature = "2Mh6diFhdKfy5MyJfWv2AWEYe71wdyMGceDGxTmtpsFDUMXptWe3RtEXAef9SCoNJveiEQUMDdeP6UJVDdrQzbdV";
-        // print_ui_amount_for_signature(confirmed_block.clone().into(), signature);
+        let _num_transactions = confirmed_block.transactions.len();
 
         // Store the block itself last, after all other metadata about the block has been
         // successfully stored.  This avoids partial uploaded blocks from becoming visible to
@@ -485,7 +478,7 @@ impl LedgerStorage {
         debug!("calling put_protobuf_cells_with_retry for blocks");
 
         if !self.uploader_config.disable_blocks {
-            bytes_written += self
+            _bytes_written += self
                 .connection
                 .put_protobuf_cells_with_retry::<generated::ConfirmedBlock>(
                     self.uploader_config.blocks_table_name.as_str(),
@@ -504,7 +497,7 @@ impl LedgerStorage {
         //     "storage-hbase-upload-block",
         //     ("slot", slot, i64),
         //     ("transactions", num_transactions, i64),
-        //     ("bytes", bytes_written, i64),
+        //     ("bytes", _bytes_written, i64),
         // );
         Ok(())
     }

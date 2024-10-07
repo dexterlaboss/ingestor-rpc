@@ -2,9 +2,7 @@ use {
     clap::{
         App,
         Arg,
-        ArgMatches,
     },
-    log::warn,
     solana_clap_utils::{
         input_validators::{
             is_pubkey,
@@ -18,7 +16,7 @@ const INCLUDE_TX_FULL_ADDR: &str = "filter-tx-full-include-addr";
 const EXCLUDE_TX_BY_ADDR_ADDR: &str = "filter-tx-by-addr-exclude-addr";
 const INCLUDE_TX_BY_ADDR_ADDR: &str = "filter-tx-by-addr-include-addr";
 
-pub fn block_uploader_app<'a>(version: &'a str, default_args: &'a DefaultBlockUploaderArgs) -> App<'a, 'a> {
+pub fn block_uploader_app<'a>(version: &'a str, _default_args: &'a DefaultBlockUploaderArgs) -> App<'a, 'a> {
     return App::new("solana-block-uploader-service")
         .about("Solana Block Uploader Service")
         .version(version)
