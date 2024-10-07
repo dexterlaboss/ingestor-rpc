@@ -90,7 +90,7 @@ impl HBaseConnection {
         read_only: bool,
         timeout: Option<Duration>,
     ) -> Self {
-        println!("Connecting to HBase at address {}", address.clone().to_string());
+        info!("Connecting to HBase at address {}", address.clone().to_string());
 
         Self {
             address: address.to_string(),
@@ -184,7 +184,7 @@ impl HBase {
             return Ok(vec![]);
         }
 
-        println!("Trying to get row keys in range {:?} - {:?} with limit {:?}", start_at, end_at, rows_limit);
+        debug!("Trying to get row keys in range {:?} - {:?} with limit {:?}", start_at, end_at, rows_limit);
 
         let mut scan = TScan::default();
         scan.start_row = start_at.map(|start_key| {
@@ -263,7 +263,7 @@ impl HBase {
             return Ok(vec![]);
         }
 
-        println!("Trying to get rows in range {:?} - {:?} with limit {:?}", start_at, end_at, rows_limit);
+        debug!("Trying to get rows in range {:?} - {:?} with limit {:?}", start_at, end_at, rows_limit);
 
         let mut scan = TScan::default();
 
@@ -326,7 +326,7 @@ impl HBase {
         table_name: &str,
         row_key: RowKey,
     ) -> Result<RowData> {
-        println!("Trying to get row data with key {:?} from table {:?}", row_key, table_name);
+        debug!("Trying to get row data with key {:?} from table {:?}", row_key, table_name);
 
         let row_result = self.client.get_row_with_columns(
             table_name.as_bytes().to_vec(),

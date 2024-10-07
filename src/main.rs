@@ -245,7 +245,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     env_logger::init();
 
-    info!("Solana block encoder service started");
+    debug!("Solana block encoder service started");
 
     handle_message_receiving(
         uploader_config,

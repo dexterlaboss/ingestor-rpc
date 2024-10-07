@@ -255,13 +255,13 @@ impl LedgerStorage {
                     "Encoded tx: {}",
                     signature.to_string(),
                 );
-                info!("{}", log_output);
+                debug!("{}", log_output);
 
                 Ok(())
             },
             None => {
                 let e = Error::MissingSignature;
-                println!("Failed to convert transaction: {}", e.to_string());
+                error!("Failed to convert transaction: {}", e.to_string());
                 Err(e)
             }
         }
@@ -295,7 +295,7 @@ impl LedgerStorage {
     ) -> Result<()> {
         let mut by_addr: HashMap<&Pubkey, Vec<TransactionByAddrInfo>> = HashMap::new();
 
-        info!("HBase: Uploading block {:?} from slot {:?}", confirmed_block.blockhash, slot);
+        info!("Uploading block {:?} from slot {:?}", confirmed_block.blockhash, slot);
 
         let mut tx_cells = vec![];
         let mut full_tx_cells = vec![];
@@ -406,9 +406,9 @@ impl LedgerStorage {
             let conn = self.connection.clone();
             let tx_table_name = self.uploader_config.tx_table_name.clone();
             let use_tx_compression = self.uploader_config.use_tx_compression.clone();
-            info!("HBase: spawning tx upload thread");
+            debug!("spawning tx upload thread");
             tasks.push(tokio::spawn(async move {
-                info!("HBase: calling put_bincode_cells_with_retry for tx");
+                debug!("calling put_bincode_cells_with_retry for tx");
                 conn.put_bincode_cells_with_retry::<TransactionInfo>(
                     tx_table_name.as_str(),
                     &tx_cells,
@@ -422,16 +422,16 @@ impl LedgerStorage {
             let conn = self.connection.clone();
             let tx_by_addr_table_name = self.uploader_config.tx_by_addr_table_name.clone();
             let use_tx_by_addr_compression = self.uploader_config.use_tx_by_addr_compression.clone();
-            info!("HBase: spawning tx-by-addr upload thread");
+            debug!("spawning tx-by-addr upload thread");
             tasks.push(tokio::spawn(async move {
-                info!("HBase: calling put_protobuf_cells_with_retry tx-by-addr");
+                debug!("calling put_protobuf_cells_with_retry tx-by-addr");
                 let result = conn.put_protobuf_cells_with_retry::<tx_by_addr::TransactionByAddr>(
                     tx_by_addr_table_name.as_str(),
                     &tx_by_addr_cells,
                     use_tx_by_addr_compression
                 )
                     .await;
-                info!("HBase: finished put_protobuf_cells_with_retry call for tx-by-addr");
+                debug!("finished put_protobuf_cells_with_retry call for tx-by-addr");
                 result
             }));
         }
@@ -439,33 +439,33 @@ impl LedgerStorage {
         let mut bytes_written = 0;
         let mut maybe_first_err: Option<Error> = None;
 
-        info!("HBase: waiting for all upload threads to finish...");
+        debug!("waiting for all upload threads to finish...");
 
         let results = futures::future::join_all(tasks).await;
-        info!("HBase: got upload results");
+        debug!("got upload results");
         for result in results {
             match result {
                 Err(err) => {
-                    info!("HBase: got error result {:?}", err);
+                    debug!("got error result {:?}", err);
                     if maybe_first_err.is_none() {
                         maybe_first_err = Some(Error::TokioJoinError(err));
                     }
                 }
                 Ok(Err(err)) => {
-                    info!("HBase: got error result {:?}", err);
+                    debug!("got error result {:?}", err);
                     if maybe_first_err.is_none() {
                         maybe_first_err = Some(Error::HBaseError(err));
                     }
                 }
                 Ok(Ok(bytes)) => {
-                    info!("HBase: got success result");
+                    debug!("got success result");
                     bytes_written += bytes;
                 }
             }
         }
 
         if let Some(err) = maybe_first_err {
-            info!("HBase: returning upload error result {:?}", err);
+            debug!("returning upload error result {:?}", err);
             return Err(err);
         }
 
@@ -482,7 +482,7 @@ impl LedgerStorage {
             confirmed_block.into()
         )];
 
-        info!("HBase: calling put_protobuf_cells_with_retry for blocks");
+        debug!("calling put_protobuf_cells_with_retry for blocks");
 
         if !self.uploader_config.disable_blocks {
             bytes_written += self
@@ -494,12 +494,12 @@ impl LedgerStorage {
                 )
                 .await
                 .map_err(|err| {
-                    error!("HBase: failed to upload block: {:?}", err);
+                    error!("failed to upload block: {:?}", err);
                     err
                 })?;
         }
 
-        info!("HBase: successfully uploaded block from slot {}", slot);
+        info!("Successfully uploaded block from slot {}", slot);
         // datapoint_info!(
         //     "storage-hbase-upload-block",
         //     ("slot", slot, i64),

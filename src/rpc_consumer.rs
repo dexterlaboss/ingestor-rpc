@@ -8,7 +8,7 @@ use {
     tokio::time::{sleep, Duration, Instant},
     futures::future::join_all,
     std::sync::atomic::{AtomicU64, Ordering},
-    log::{debug, info, warn},
+    log::{debug, info, warn, error},
     solana_client::rpc_client::RpcClient,
     // solana_transaction_status::{BlockEncodingOptions, EncodedConfirmedBlock, UiTransactionEncoding, TransactionDetails},
     // solana_transaction_status::EncodedConfirmedBlock as SdkEncodedConfirmedBlock,
@@ -143,7 +143,7 @@ impl RpcConsumer {
                             }
                         },
                         Err(e) => {
-                            println!("Error fetching block data for slot {}: {:?}", slot, e);
+                            error!("Error fetching block data from slot {}: {:?}", slot, e);
                         }
                     }
 
@@ -158,17 +158,17 @@ impl RpcConsumer {
             let rx = Arc::clone(&rx);
             tokio::spawn(async move {
                 while let Some((slot, block_data)) = rx.lock().await.recv().await {
-                    info!("Processing block with slot {}", slot);
+                    info!("Received block from slot {}", slot);
 
                     if block_data.is_null() {
-                        warn!("Block data for slot {} is null. Skipping...", slot);
+                        warn!("Block data from slot {} is null. Skipping.", slot);
                         continue;
                     }
 
                     let block: EncodedConfirmedBlock = match serde_json::from_value(block_data) {
                         Ok(block) => block,
                         Err(e) => {
-                            warn!("Failed to parse block data for slot {}: {:?}", slot, e);
+                            warn!("Failed to parse block data from slot {}: {:?}", slot, e);
                             continue;
                         }
                     };
@@ -187,12 +187,12 @@ impl RpcConsumer {
                     match conversion_result {
                         Ok(versioned_block) => {
                             match storage.upload_confirmed_block(slot, versioned_block).await {
-                                Ok(_) => info!("Successfully uploaded block with slot {}", slot),
-                                Err(e) => warn!("Failed to upload block with slot {}: {:?}", slot, e),
+                                Ok(_) => info!("Finished processing block from slot {}", slot),
+                                Err(e) => warn!("Failed to process block from slot {}: {:?}", slot, e),
                             }
                         },
                         Err(e) => {
-                            warn!("Failed to convert block with slot {}: {:?}", slot, e);
+                            warn!("Failed to convert block from slot {}: {:?}", slot, e);
                         }
                     }
 

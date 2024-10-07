@@ -1,6 +1,6 @@
 [package]
 name = "ingestor-rpc"
-version = "1.2.8"
+version = "1.2.9"
 description = "Solana RPC Ingestor"
 authors = ["Aurimas Narkevicius <aurimas.n@dexterlab.com>"]
 license = "Apache-2.0"
