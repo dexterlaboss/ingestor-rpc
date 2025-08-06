@@ -77,6 +77,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct HBaseConnection {
     address: String,
     timeout: Option<Duration>,
+    batch_size: usize,
 }
 
 impl HBaseConnection {
@@ -84,18 +85,19 @@ impl HBaseConnection {
         address: &str,
         _read_only: bool,
         timeout: Option<Duration>,
+        batch_size: usize,
     ) -> Self {
-        info!("Connecting to HBase at address {}", address.clone().to_string());
+        info!("Connecting to HBase at address {} with batch size {}", address.clone().to_string(), batch_size);
 
         Self {
             address: address.to_string(),
             timeout,
+            batch_size,
         }
     }
 
     pub fn client(&self) -> HBase {
         let mut channel = TTcpChannel::new();
-
         channel.open(self.address.clone()).unwrap();
 
         let (input_chan, output_chan) = channel.split().unwrap();
@@ -105,10 +107,7 @@ impl HBaseConnection {
 
         let client = HbaseSyncClient::new(input_prot, output_prot);
 
-        HBase {
-            client,
-            _timeout: self.timeout,
-        }
+        HBase::new(client, self.timeout, self.batch_size)
     }
 
     pub async fn put_bincode_cells_with_retry<T>(
@@ -156,9 +155,18 @@ type OutputProtocol = TBinaryOutputProtocol<OutputTransport>;
 pub struct HBase {
     client: HbaseSyncClient<InputProtocol, OutputProtocol>,
     _timeout: Option<Duration>,
+    batch_size: usize,
 }
 
 impl HBase {
+    pub fn new(client: HbaseSyncClient<InputProtocol, OutputProtocol>, timeout: Option<Duration>, batch_size: usize) -> Self {
+        Self {
+            client,
+            _timeout: timeout,
+            batch_size,
+        }
+    }
+
     /// Get `table` row keys in lexical order.
     ///
     /// If `start_at` is provided, the row key listing will start with key.
@@ -378,19 +386,26 @@ impl HBase {
     {
         let mut bytes_written = 0;
         let mut new_row_data = vec![];
-        for (row_key, data) in cells {
-            let serialized_data = bincode::serialize(&data).unwrap();
+        
+        // Process cells in batches
+        for chunk in cells.chunks(self.batch_size) {
+            let mut batch_data = Vec::with_capacity(chunk.len());
+            for (row_key, data) in chunk {
+                let serialized_data = bincode::serialize(&data).unwrap();
 
-            let data = if use_compression {
-                compress_best(&serialized_data)?
-            } else {
-                compress(CompressionMethod::NoCompression, &serialized_data)?
-            };
+                let data = if use_compression {
+                    compress_best(&serialized_data)?
+                } else {
+                    compress(CompressionMethod::NoCompression, &serialized_data)?
+                };
 
-            bytes_written += data.len();
-            new_row_data.push((row_key, vec![("bin".to_string(), data)]));
+                bytes_written += data.len();
+                batch_data.push((row_key, vec![("bin".to_string(), data)]));
+            }
+            new_row_data.extend(batch_data);
         }
 
+        // Send all data in a single RPC call
         self.put_row_data(table, "x", &new_row_data).await?;
         Ok(bytes_written)
     }
@@ -406,20 +421,27 @@ impl HBase {
     {
         let mut bytes_written = 0;
         let mut new_row_data = vec![];
-        for (row_key, data) in cells {
-            let mut buf = Vec::with_capacity(data.encoded_len());
-            data.encode(&mut buf).unwrap();
+        
+        // Process cells in batches
+        for chunk in cells.chunks(self.batch_size) {
+            let mut batch_data = Vec::with_capacity(chunk.len());
+            for (row_key, data) in chunk {
+                let mut buf = Vec::with_capacity(data.encoded_len());
+                data.encode(&mut buf).unwrap();
 
-            let data = if use_compression {
-                compress_best(&buf)?
-            } else {
-                compress(CompressionMethod::NoCompression, &buf)?
-            };
+                let data = if use_compression {
+                    compress_best(&buf)?
+                } else {
+                    compress(CompressionMethod::NoCompression, &buf)?
+                };
 
-            bytes_written += data.len();
-            new_row_data.push((row_key, vec![("proto".to_string(), data)]));
+                bytes_written += data.len();
+                batch_data.push((row_key, vec![("proto".to_string(), data)]));
+            }
+            new_row_data.extend(batch_data);
         }
 
+        // Send all data in a single RPC call
         self.put_row_data(table, "x", &new_row_data).await?;
         Ok(bytes_written)
     }
@@ -430,9 +452,9 @@ impl HBase {
         family_name: &str,
         row_data: &[(&RowKey, RowData)],
     ) -> Result<()> {
-        let mut mutation_batches = Vec::new();
+        let mut mutation_batches = Vec::with_capacity(row_data.len());
         for (row_key, cell_data) in row_data {
-            let mut mutations = Vec::new();
+            let mut mutations = Vec::with_capacity(cell_data.len());
             for (cell_name, cell_value) in cell_data {
                 let mut mutation_builder = MutationBuilder::default();
                 mutation_builder.column(family_name, cell_name);
@@ -443,7 +465,6 @@ impl HBase {
         }
 
         self.client.mutate_rows(table_name.as_bytes().to_vec(), mutation_batches, Default::default())?;
-
         Ok(())
     }
 

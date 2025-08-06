@@ -32,9 +32,9 @@ async fn create_consumer(
     rpc_url: String,
     hbase_address: String,
     reader_threads: usize,
-    writer_threads: usize,
-    channel_buffer_size: usize,
     rpc_poll_interval: u64,
+    start_block: Option<u64>,
+    reverse: bool,
 ) -> RpcConsumer {
     info!("Connecting to Solana RPC: {}", &rpc_url);
 
@@ -46,16 +46,15 @@ async fn create_consumer(
     };
     let storage = LedgerStorage::new_with_config(storage_config).await;
 
-    // let rpc_client = RpcClient::new(rpc_url);
     let rpc_client = Arc::new(RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed()));
 
     RpcConsumer::new(
         rpc_client,
         storage,
         reader_threads,
-        writer_threads,
-        channel_buffer_size,
         rpc_poll_interval,
+        start_block,
+        reverse,
     )
 }
 
@@ -65,9 +64,9 @@ async fn handle_message_receiving(
     rpc_url: String,
     hbase_address: String,
     reader_threads: usize,
-    writer_threads: usize,
-    channel_buffer_size: usize,
     rpc_poll_interval: u64,
+    start_block: Option<u64>,
+    reverse: bool,
 ) {
     debug!("Started consuming messages");
 
@@ -76,9 +75,9 @@ async fn handle_message_receiving(
         rpc_url,
         hbase_address,
         reader_threads,
-        writer_threads,
-        channel_buffer_size,
         rpc_poll_interval,
+        start_block,
+        reverse,
     ).await;
 
     let _ = rpc_consumer.consume().await;
@@ -148,6 +147,7 @@ fn process_arguments(matches: &ArgMatches) -> UploaderConfig {
         use_tx_compression,
         use_tx_by_addr_compression,
         use_tx_full_compression,
+        max_concurrent_connections: 1,
         ..Default::default()
     }
 }
@@ -199,27 +199,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("start_block")
+                .long("start-block")
+                .value_name("SLOT")
+                .help("The slot number to start backfilling from")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("reverse")
+                .long("reverse")
+                .help("Backfill blocks in reverse order (requires --start-block)")
+                .takes_value(false)
+                .requires("start_block"),
+        )
+        .arg(
             Arg::with_name("reader_threads")
                 .long("reader-threads")
                 .value_name("N")
                 .help("Number of reader threads")
                 .default_value("1")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("writer_threads")
-                .long("writer-threads")
-                .value_name("N")
-                .help("Number of writer threads")
-                .default_value("5")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("channel_buffer_size")
-                .long("channel-buffer-size")
-                .value_name("SIZE")
-                .help("Size of the channel buffer")
-                .default_value("10")
                 .takes_value(true),
         )
         .arg(
@@ -236,9 +234,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let solana_rpc_url = matches.value_of("solana_rpc_url").unwrap().to_string();
     let hbase_address = matches.value_of("hbase_address").unwrap().to_string();
     let reader_threads: usize = matches.value_of("reader_threads").unwrap().parse()?;
-    let writer_threads: usize = matches.value_of("writer_threads").unwrap().parse()?;
-    let channel_buffer_size: usize = matches.value_of("channel_buffer_size").unwrap().parse()?;
     let rpc_poll_interval: u64 = matches.value_of("rpc_poll_interval").unwrap().parse()?;
+    let start_block: Option<u64> = matches.value_of("start_block").map(|s| s.parse().unwrap());
+    let reverse = matches.is_present("reverse");
 
     let uploader_config = process_arguments(&matches);
 
@@ -251,9 +249,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         solana_rpc_url,
         hbase_address,
         reader_threads,
-        writer_threads,
-        channel_buffer_size,
         rpc_poll_interval,
+        start_block,
+        reverse,
     ).await;
 
     Ok(())

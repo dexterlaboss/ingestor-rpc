@@ -35,7 +35,7 @@ use {
         warn
     },
     std::{
-        collections::{HashMap, HashSet},
+        collections::{HashSet, HashMap},
     },
     thiserror::Error,
     tokio::task::JoinError,
@@ -160,6 +160,8 @@ pub struct UploaderConfig {
     pub use_tx_compression: bool,
     pub use_tx_by_addr_compression: bool,
     pub use_tx_full_compression: bool,
+    pub batch_size: usize,
+    pub max_concurrent_connections: usize,
 }
 
 impl Default for UploaderConfig {
@@ -182,6 +184,8 @@ impl Default for UploaderConfig {
             use_tx_compression: true,
             use_tx_by_addr_compression: true,
             use_tx_full_compression: true,
+            batch_size: 5000,
+            max_concurrent_connections: 1,
         }
     }
 }
@@ -222,6 +226,7 @@ impl LedgerStorage {
             address.as_str(),
             read_only,
             timeout,
+            uploader_config.batch_size,
         )
             .await;
         Self {
@@ -289,12 +294,20 @@ impl LedgerStorage {
         slot: Slot,
         confirmed_block: VersionedConfirmedBlock,
     ) -> Result<()> {
-        let mut by_addr: HashMap<&Pubkey, Vec<TransactionByAddrInfo>> = HashMap::new();
-
         info!("Uploading block {:?} from slot {:?}", confirmed_block.blockhash, slot);
 
-        let mut tx_cells = vec![];
-        let mut full_tx_cells = vec![];
+        let connection = self.connection.clone();
+        let uploader_config = self.uploader_config.clone();
+        let block_time = confirmed_block.block_time;
+
+        // Prepare all data first
+        let mut tx_cells = Vec::with_capacity(confirmed_block.transactions.len());
+        let mut full_tx_cells = Vec::with_capacity(confirmed_block.transactions.len());
+        
+        // Group transactions by (address, slot) to prevent overwrites
+        let mut tx_by_addr_groups: HashMap<String, Vec<TransactionByAddrInfo>> = HashMap::new();
+
+        // Process all transactions in a single pass
         for (index, transaction_with_meta) in confirmed_block.transactions.iter().enumerate() {
             let VersionedTransactionWithStatusMeta { meta, transaction } = transaction_with_meta;
             let err = meta.status.clone().err();
@@ -306,204 +319,160 @@ impl LedgerStorage {
             let mut should_skip_tx_by_addr = false;
             let mut should_skip_full_tx = false;
 
-            if self.uploader_config.filter_voting_tx && is_voting_tx(transaction_with_meta) {
+            if uploader_config.filter_voting_tx && is_voting_tx(transaction_with_meta) {
                 should_skip_tx_by_addr = true;
                 should_skip_full_tx = true;
             }
 
-            let combined_keys = get_account_keys(&transaction_with_meta);
+            let combined_keys = get_account_keys(transaction_with_meta);
 
             if !should_skip_tx_by_addr {
                 for address in transaction_with_meta.account_keys().iter() {
-                    // Filter program accounts from tx-by-addr index
-                    if self.uploader_config.filter_program_accounts
+                    if uploader_config.filter_program_accounts
                         && is_program_account(address, transaction_with_meta, &combined_keys) {
                         continue;
                     }
 
-                    if should_skip_full_tx || !self.should_include_in_tx_full(address) {
+                    if should_skip_full_tx || !Self::should_include_in_tx_full(address, &uploader_config) {
                         should_skip_full_tx = true;
                     }
 
-                    if !is_sysvar_id(address) && self.should_include_in_tx_by_addr(address) {
-                        by_addr
-                            .entry(address)
-                            .or_default()
-                            .push(TransactionByAddrInfo {
+                    if !is_sysvar_id(address) && Self::should_include_in_tx_by_addr(address, &uploader_config) {
+                        let row_key = format!("{}/{}", address, slot_to_tx_by_addr_key(slot));
+                        
+                        // Group transactions by row key instead of creating separate entries
+                        tx_by_addr_groups.entry(row_key).or_insert_with(Vec::new).push(
+                            TransactionByAddrInfo {
                                 signature,
                                 err: err.clone(),
                                 index,
                                 memo: memo.clone(),
-                                block_time: confirmed_block.block_time,
-                            });
+                                block_time,
+                            }
+                        );
                     }
                 }
             }
 
-            if self.uploader_config.enable_full_tx && !should_skip_full_tx {
+            if uploader_config.enable_full_tx && !should_skip_full_tx {
                 should_skip_tx = true;
-
                 full_tx_cells.push((
                     signature.to_string(),
                     ConfirmedTransactionWithStatusMeta {
                         slot,
                         tx_with_meta: transaction_with_meta.clone().into(),
-                        block_time: confirmed_block.block_time,
+                        block_time,
                     }.into()
                 ));
             }
 
-            if !self.uploader_config.disable_tx && !should_skip_tx {
+            if !uploader_config.disable_tx && !should_skip_tx {
                 tx_cells.push((
                     signature.to_string(),
                     TransactionInfo {
                         slot,
                         index,
                         err,
-                        // memo,
                     },
                 ));
             }
         }
 
-        let tx_by_addr_cells: Vec<_> = by_addr
-            .into_iter()
-            .map(|(address, transaction_info_by_addr)| {
-                (
-                    format!("{}/{}", address, slot_to_tx_by_addr_key(slot)),
-                    tx_by_addr::TransactionByAddr {
-                        tx_by_addrs: transaction_info_by_addr
-                            .into_iter()
-                            .map(|by_addr| by_addr.into())
-                            .collect(),
-                    },
-                )
-            })
-            .collect();
+        // Convert grouped transactions to cells
+        let mut tx_by_addr_cells = Vec::with_capacity(tx_by_addr_groups.len());
+        for (row_key, transactions) in tx_by_addr_groups {
+            tx_by_addr_cells.push((
+                row_key,
+                tx_by_addr::TransactionByAddr {
+                    tx_by_addrs: transactions.into_iter().map(|t| t.into()).collect(),
+                },
+            ));
+        }
 
         let mut tasks = vec![];
+        let mut total_bytes_written = 0;
 
-        if !full_tx_cells.is_empty() && self.uploader_config.enable_full_tx {
-            let conn = self.connection.clone();
-            let full_tx_table_name = self.uploader_config.full_tx_table_name.clone();
-            let use_tx_full_compression = self.uploader_config.use_tx_full_compression.clone();
+        // Spawn tasks for each type of data
+        if !full_tx_cells.is_empty() && uploader_config.enable_full_tx {
+            let conn = connection.clone();
+            let full_tx_table_name = uploader_config.full_tx_table_name.clone();
+            let use_tx_full_compression = uploader_config.use_tx_full_compression;
             tasks.push(tokio::spawn(async move {
-                let result = conn.put_protobuf_cells_with_retry::<generated::ConfirmedTransactionWithStatusMeta>(
+                conn.put_protobuf_cells_with_retry::<generated::ConfirmedTransactionWithStatusMeta>(
                     full_tx_table_name.as_str(),
                     &full_tx_cells,
                     use_tx_full_compression
-                )
-                    .await;
-                result
+                ).await
             }));
         }
 
-        if !tx_cells.is_empty() && !self.uploader_config.disable_tx {
-            let conn = self.connection.clone();
-            let tx_table_name = self.uploader_config.tx_table_name.clone();
-            let use_tx_compression = self.uploader_config.use_tx_compression.clone();
-            debug!("spawning tx upload thread");
+        if !tx_cells.is_empty() && !uploader_config.disable_tx {
+            let conn = connection.clone();
+            let tx_table_name = uploader_config.tx_table_name.clone();
+            let use_tx_compression = uploader_config.use_tx_compression;
             tasks.push(tokio::spawn(async move {
-                debug!("calling put_bincode_cells_with_retry for tx");
                 conn.put_bincode_cells_with_retry::<TransactionInfo>(
                     tx_table_name.as_str(),
                     &tx_cells,
                     use_tx_compression
-                )
-                    .await
+                ).await
             }));
         }
 
-        if !tx_by_addr_cells.is_empty() && !self.uploader_config.disable_tx_by_addr {
-            let conn = self.connection.clone();
-            let tx_by_addr_table_name = self.uploader_config.tx_by_addr_table_name.clone();
-            let use_tx_by_addr_compression = self.uploader_config.use_tx_by_addr_compression.clone();
-            debug!("spawning tx-by-addr upload thread");
+        if !tx_by_addr_cells.is_empty() && !uploader_config.disable_tx_by_addr {
+            let conn = connection.clone();
+            let tx_by_addr_table_name = uploader_config.tx_by_addr_table_name.clone();
+            let use_tx_by_addr_compression = uploader_config.use_tx_by_addr_compression;
             tasks.push(tokio::spawn(async move {
-                debug!("calling put_protobuf_cells_with_retry tx-by-addr");
-                let result = conn.put_protobuf_cells_with_retry::<tx_by_addr::TransactionByAddr>(
+                conn.put_protobuf_cells_with_retry::<tx_by_addr::TransactionByAddr>(
                     tx_by_addr_table_name.as_str(),
                     &tx_by_addr_cells,
                     use_tx_by_addr_compression
-                )
-                    .await;
-                debug!("finished put_protobuf_cells_with_retry call for tx-by-addr");
-                result
+                ).await
             }));
         }
 
-        let mut _bytes_written = 0;
-        let mut maybe_first_err: Option<Error> = None;
-
-        debug!("waiting for all upload threads to finish...");
-
+        // Wait for all tasks to complete
         let results = futures::future::join_all(tasks).await;
-        debug!("got upload results");
         for result in results {
             match result {
                 Err(err) => {
-                    debug!("got error result {:?}", err);
-                    if maybe_first_err.is_none() {
-                        maybe_first_err = Some(Error::TokioJoinError(err));
-                    }
+                    error!("Task error: {:?}", err);
+                    return Err(Error::TokioJoinError(err));
                 }
                 Ok(Err(err)) => {
-                    debug!("got error result {:?}", err);
-                    if maybe_first_err.is_none() {
-                        maybe_first_err = Some(Error::HBaseError(err));
-                    }
+                    error!("HBase error: {:?}", err);
+                    return Err(Error::HBaseError(err));
                 }
                 Ok(Ok(bytes)) => {
-                    debug!("got success result");
-                    _bytes_written += bytes;
+                    total_bytes_written += bytes;
                 }
             }
         }
 
-        if let Some(err) = maybe_first_err {
-            debug!("returning upload error result {:?}", err);
-            return Err(err);
-        }
-
-        let _num_transactions = confirmed_block.transactions.len();
-
-        // Store the block itself last, after all other metadata about the block has been
-        // successfully stored.  This avoids partial uploaded blocks from becoming visible to
-        // `get_confirmed_block()` and `get_confirmed_blocks()`
-        let blocks_cells = [(
-            slot_to_blocks_key(slot, self.uploader_config.use_md5_row_key_salt),
-            confirmed_block.into()
-        )];
-
-        debug!("calling put_protobuf_cells_with_retry for blocks");
-
+        // Upload block data last
         if !self.uploader_config.disable_blocks {
-            _bytes_written += self
+            let blocks_cells = [(
+                slot_to_blocks_key(slot, self.uploader_config.use_md5_row_key_salt),
+                confirmed_block.into()
+            )];
+
+            total_bytes_written += self
                 .connection
                 .put_protobuf_cells_with_retry::<generated::ConfirmedBlock>(
                     self.uploader_config.blocks_table_name.as_str(),
                     &blocks_cells,
                     self.uploader_config.use_blocks_compression
                 )
-                .await
-                .map_err(|err| {
-                    error!("failed to upload block: {:?}", err);
-                    err
-                })?;
+                .await?;
         }
 
-        info!("Successfully uploaded block from slot {}", slot);
-        // datapoint_info!(
-        //     "storage-hbase-upload-block",
-        //     ("slot", slot, i64),
-        //     ("transactions", num_transactions, i64),
-        //     ("bytes", _bytes_written, i64),
-        // );
+        info!("Successfully uploaded block from slot {} ({} bytes)", slot, total_bytes_written);
         Ok(())
     }
 
-    fn should_include_in_tx_full(&self, address: &Pubkey) -> bool {
-        if let Some(ref filter) = self.uploader_config.tx_full_filter {
+    fn should_include_in_tx_full(address: &Pubkey, config: &UploaderConfig) -> bool {
+        if let Some(ref filter) = config.tx_full_filter {
             if filter.exclude {
                 // If exclude is true, exclude the address if it's in the set.
                 !filter.addrs.contains(address)
@@ -516,8 +485,8 @@ impl LedgerStorage {
         }
     }
 
-    fn should_include_in_tx_by_addr(&self, address: &Pubkey) -> bool {
-        if let Some(ref filter) = self.uploader_config.tx_by_addr_filter {
+    fn should_include_in_tx_by_addr(address: &Pubkey, config: &UploaderConfig) -> bool {
+        if let Some(ref filter) = config.tx_by_addr_filter {
             if filter.exclude {
                 // If exclude is true, exclude the address if it's in the set.
                 !filter.addrs.contains(address)
